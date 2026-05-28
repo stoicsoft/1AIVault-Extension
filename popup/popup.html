@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>1AIVault Sync</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>1AIVault Sync</h1>
+      <span id="pairBadge" class="badge"></span>
+    </header>
+
+    <section class="block">
+      <label for="token">Pair token</label>
+      <div class="row">
+        <input id="token" type="text" placeholder="paste from 1AIVault → Settings" spellcheck="false" autocomplete="off" />
+        <button id="saveBtn">Save</button>
+      </div>
+      <p class="hint">Settings → General → Browser extension in the 1AIVault desktop app.</p>
+    </section>
+
+    <section class="block">
+      <div class="row between">
+        <strong>Connection</strong>
+        <button id="pingBtn" class="secondary">Test</button>
+      </div>
+      <div id="pingStatus" class="status">—</div>
+    </section>
+
+    <section class="block">
+      <div class="row between">
+        <strong>Auto-sync</strong>
+        <label class="switch">
+          <input type="checkbox" id="autoSyncToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p class="hint">When on, the extension checks for new conversations every 5 minutes and imports them silently.</p>
+    </section>
+
+    <section class="block">
+      <div class="row between">
+        <strong>Last sync</strong>
+        <div class="row">
+          <button id="fullscreenBtn" class="secondary" title="Open full sync UI">Fullscreen ↗</button>
+          <button id="syncBtn">Sync now</button>
+        </div>
+      </div>
+      <div id="lastSync" class="status">never</div>
+      <div id="serviceRows"></div>
+    </section>
+
+    <footer>
+      Conversations stay on this machine. Loopback only.
+    </footer>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>1AIVault Sync</title>
+    <link rel="stylesheet" href="progress.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <div class="logo">1AIVault Sync</div>
+        <div id="reason" class="subtitle">idle</div>
+      </div>
+      <div class="actions" id="headerActions"></div>
+    </header>
+
+    <main id="main">
+      <!-- picker (default landing) -->
+      <section id="view-picker" class="view">
+        <div class="centered">
+          <div class="big">Choose what to sync</div>
+          <div class="muted">Nothing is fetched until you pick. Pick a single service to keep the fetch tight.</div>
+          <div class="picker-cards">
+            <button class="picker-card" data-service="claude">
+              <div class="picker-title">Claude.ai</div>
+              <div class="picker-sub">Projects + conversations</div>
+            </button>
+            <button class="picker-card" data-service="chatgpt">
+              <div class="picker-title">ChatGPT</div>
+              <div class="picker-sub">Recent conversations</div>
+            </button>
+            <button class="picker-card primary" data-service="both">
+              <div class="picker-title">Both</div>
+              <div class="picker-sub">Discover Claude.ai and ChatGPT</div>
+            </button>
+          </div>
+          <div id="lastSyncInfo" class="muted" style="margin-top:18px"></div>
+        </div>
+      </section>
+
+      <!-- discovery in progress -->
+      <section id="view-loading" class="view hidden">
+        <div class="centered">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="big" id="loadingMsg">Scanning your AI accounts…</div>
+          <div class="muted">Reading the conversation lists. No transcripts are fetched yet.</div>
+        </div>
+      </section>
+
+      <!-- selection -->
+      <section id="view-select" class="view hidden">
+        <div class="toolbar">
+          <input id="searchInput" type="search" placeholder="Filter by title…" />
+          <button id="selectAllBtn" class="secondary">Select all</button>
+          <button id="deselectAllBtn" class="secondary">Deselect all</button>
+          <button id="onlyNewBtn" class="secondary">Only new</button>
+          <span class="grow"></span>
+          <div id="summary" class="summary muted">—</div>
+          <button id="startBtn">Start import →</button>
+        </div>
+        <div id="tree" class="tree"></div>
+      </section>
+
+      <!-- running / done -->
+      <section id="view-run" class="view hidden">
+        <section class="cards">
+          <article class="card" id="card-claude">
+            <header>
+              <span class="dot" data-status="idle"></span>
+              <h2>Claude.ai</h2>
+              <span class="state" data-state>idle</span>
+            </header>
+            <div class="progress"><div class="bar" data-bar></div></div>
+            <div class="metric" data-metric>—</div>
+            <div class="counts">
+              <span><b data-imported>0</b> imported</span>
+              <span><b data-skipped>0</b> skipped</span>
+              <span><b data-errors>0</b> errors</span>
+            </div>
+          </article>
+          <article class="card" id="card-chatgpt">
+            <header>
+              <span class="dot" data-status="idle"></span>
+              <h2>ChatGPT</h2>
+              <span class="state" data-state>idle</span>
+            </header>
+            <div class="progress"><div class="bar" data-bar></div></div>
+            <div class="metric" data-metric>—</div>
+            <div class="counts">
+              <span><b data-imported>0</b> imported</span>
+              <span><b data-skipped>0</b> skipped</span>
+              <span><b data-errors>0</b> errors</span>
+            </div>
+          </article>
+        </section>
+
+        <section class="log">
+          <header>
+            <h3>Activity log</h3>
+            <label class="filter">
+              <input type="checkbox" id="autoscroll" checked /> Auto-scroll
+            </label>
+          </header>
+          <div id="logList" class="log-list" role="log" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="progress.js" type="module"></script>
+  </body>
+</html>

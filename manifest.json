@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "1AIVault Sync",
+  "version": "0.1.0",
+  "description": "Syncs your Claude.ai and ChatGPT conversations to the 1AIVault desktop app on this machine.",
+  "permissions": ["storage", "alarms", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://*.claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "http://127.0.0.1:54330/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "api_headers",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "1AIVault Sync",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

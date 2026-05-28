@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Origin", "operation": "set", "value": "https://claude.ai" },
+        { "header": "Referer", "operation": "set", "value": "https://claude.ai/" },
+        { "header": "Sec-Fetch-Site", "operation": "set", "value": "same-origin" },
+        { "header": "Sec-Fetch-Mode", "operation": "set", "value": "cors" },
+        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "empty" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||claude.ai/api/",
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Origin", "operation": "set", "value": "https://chatgpt.com" },
+        { "header": "Referer", "operation": "set", "value": "https://chatgpt.com/" },
+        { "header": "Sec-Fetch-Site", "operation": "set", "value": "same-origin" },
+        { "header": "Sec-Fetch-Mode", "operation": "set", "value": "cors" },
+        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "empty" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||chatgpt.com/",
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  }
+]
