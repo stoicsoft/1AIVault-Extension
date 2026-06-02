@@ -9,12 +9,14 @@
         { "header": "Referer", "operation": "set", "value": "https://claude.ai/" },
         { "header": "Sec-Fetch-Site", "operation": "set", "value": "same-origin" },
         { "header": "Sec-Fetch-Mode", "operation": "set", "value": "cors" },
-        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "empty" }
+        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "empty" },
+        { "header": "anthropic-client-platform", "operation": "set", "value": "web_claude_ai" }
       ]
     },
     "condition": {
       "urlFilter": "||claude.ai/api/",
-      "resourceTypes": ["xmlhttprequest"]
+      "resourceTypes": ["xmlhttprequest"],
+      "excludedInitiatorDomains": ["claude.ai"]
     }
   },
   {
@@ -32,7 +34,8 @@
     },
     "condition": {
       "urlFilter": "||chatgpt.com/",
-      "resourceTypes": ["xmlhttprequest"]
+      "resourceTypes": ["xmlhttprequest"],
+      "excludedInitiatorDomains": ["chatgpt.com", "chat.openai.com"]
     }
   }
 ]

@@ -87,16 +87,20 @@ document.querySelectorAll('.picker-card').forEach((btn) => {
 })
 
 function buildInitialSelection() {
+  // Default: pick everything that's either new to the vault or has changed
+  // since the last import. Skip 'current' items so the user isn't forced
+  // to re-classify conversations that haven't changed.
   selection.claude.clear()
   selection.chatgpt.clear()
+  const needsImport = (c) => c.vaultStatus !== 'current'
   if (discovery && discovery.claude && discovery.claude.signedIn) {
     for (const org of discovery.claude.orgs) {
-      for (const p of org.projects) for (const c of p.conversations) selection.claude.add(c.id)
-      for (const c of org.unfiled) selection.claude.add(c.id)
+      for (const p of org.projects) for (const c of p.conversations) if (needsImport(c)) selection.claude.add(c.id)
+      for (const c of org.unfiled) if (needsImport(c)) selection.claude.add(c.id)
     }
   }
   if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
-    for (const c of discovery.chatgpt.conversations) selection.chatgpt.add(c.id)
+    for (const c of discovery.chatgpt.conversations) if (needsImport(c)) selection.chatgpt.add(c.id)
   }
   updateSummary()
 }
@@ -148,6 +152,7 @@ const searchInput = document.getElementById('searchInput')
 const selectAllBtn = document.getElementById('selectAllBtn')
 const deselectAllBtn = document.getElementById('deselectAllBtn')
 const onlyNewBtn = document.getElementById('onlyNewBtn')
+const onlyUpdatedBtn = document.getElementById('onlyUpdatedBtn')
 const summaryEl = document.getElementById('summary')
 const startBtn = document.getElementById('startBtn')
 
@@ -164,22 +169,30 @@ deselectAllBtn.addEventListener('click', () => {
   renderTree()
 })
 onlyNewBtn.addEventListener('click', () => {
-  // Keep only non-cached conversations selected.
+  // Keep only conversations the vault has never seen.
+  selectByStatus((c) => c.vaultStatus === 'absent')
+})
+onlyUpdatedBtn.addEventListener('click', () => {
+  // Keep only conversations the vault already has but that changed upstream.
+  selectByStatus((c) => c.vaultStatus === 'stale')
+})
+
+function selectByStatus(predicate) {
   if (discovery && discovery.claude && discovery.claude.signedIn) {
     selection.claude.clear()
     for (const org of discovery.claude.orgs) {
       for (const p of org.projects) {
-        for (const c of p.conversations) if (!c.cached) selection.claude.add(c.id)
+        for (const c of p.conversations) if (predicate(c)) selection.claude.add(c.id)
       }
-      for (const c of org.unfiled) if (!c.cached) selection.claude.add(c.id)
+      for (const c of org.unfiled) if (predicate(c)) selection.claude.add(c.id)
     }
   }
   if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
     selection.chatgpt.clear()
-    for (const c of discovery.chatgpt.conversations) if (!c.cached) selection.chatgpt.add(c.id)
+    for (const c of discovery.chatgpt.conversations) if (predicate(c)) selection.chatgpt.add(c.id)
   }
   renderTree()
-})
+}
 startBtn.addEventListener('click', startSync)
 
 function renderTree() {
@@ -214,6 +227,7 @@ function renderClaudeSection(data) {
       for (const c of visibleChildren) {
         projNode.children.appendChild(convRow('claude', c, true))
       }
+      root.appendChild(projNode.children)
     }
     // Unfiled
     const visibleUnfiled = org.unfiled.filter(matches)
@@ -223,6 +237,7 @@ function renderClaudeSection(data) {
       for (const c of visibleUnfiled) {
         unfiledNode.children.appendChild(convRow('claude', c, true))
       }
+      root.appendChild(unfiledNode.children)
     }
   }
   return root
@@ -266,6 +281,13 @@ function warn(text) {
   w.className = 'signin-warn'
   w.textContent = text
   return w
+}
+
+function badge(text, className) {
+  const b = document.createElement('span')
+  b.className = className || 'badge'
+  b.textContent = text
+  return b
 }
 
 function projectRow(service, proj, visibleCount) {
@@ -324,8 +346,9 @@ function projectRow(service, proj, visibleCount) {
 }
 
 function convRow(service, conv, indented) {
+  const status = conv.vaultStatus || 'absent'
   const node = document.createElement('div')
-  node.className = 'node' + (conv.cached ? ' cached' : '')
+  node.className = 'node status-' + status
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
   checkbox.checked = selection[service].has(conv.id)
@@ -342,11 +365,10 @@ function convRow(service, conv, indented) {
   node.appendChild(indent)
   node.appendChild(title)
   node.appendChild(right)
-  if (conv.cached) {
-    const b = document.createElement('span')
-    b.className = 'badge'
-    b.textContent = 'cached'
-    node.appendChild(b)
+  if (status === 'current') {
+    node.appendChild(badge('in vault', 'badge muted'))
+  } else if (status === 'stale') {
+    node.appendChild(badge('updated', 'badge accent'))
   }
 
   checkbox.onclick = (e) => {
@@ -366,8 +388,38 @@ function convRow(service, conv, indented) {
 function updateSummary() {
   const c = selection.claude.size
   const g = selection.chatgpt.size
-  summaryEl.textContent = `${c + g} selected · ${c} Claude · ${g} ChatGPT`
+  // Break the selection down so the user can see whether they're about to
+  // re-classify already-imported conversations.
+  let newCount = 0
+  let updatedCount = 0
+  let alreadyCount = 0
+  forEachConv((service, conv) => {
+    if (!selection[service].has(conv.id)) return
+    if (conv.vaultStatus === 'absent') newCount++
+    else if (conv.vaultStatus === 'stale') updatedCount++
+    else if (conv.vaultStatus === 'current') alreadyCount++
+  })
+  const parts = [
+    `${c + g} selected`,
+    `${c} Claude · ${g} ChatGPT`,
+  ]
+  if (newCount || updatedCount || alreadyCount) {
+    parts.push(`${newCount} new · ${updatedCount} updated · ${alreadyCount} unchanged`)
+  }
+  summaryEl.textContent = parts.join(' · ')
   startBtn.disabled = c + g === 0
+}
+
+function forEachConv(fn) {
+  if (discovery && discovery.claude && discovery.claude.signedIn) {
+    for (const org of discovery.claude.orgs) {
+      for (const p of org.projects) for (const c of p.conversations) fn('claude', c)
+      for (const c of org.unfiled) fn('claude', c)
+    }
+  }
+  if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
+    for (const c of discovery.chatgpt.conversations) fn('chatgpt', c)
+  }
 }
 
 function forEachVisibleConv(fn) {
@@ -554,6 +606,14 @@ function appendLog(event, cls, message) {
 }
 
 function hh(d) { return d.toTimeString().slice(0, 8) }
+
+function humanAgo(ms) {
+  const sec = Math.floor((Date.now() - ms) / 1000)
+  if (sec < 60) return `${sec}s ago`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`
+  return `${Math.floor(sec / 86400)}d ago`
+}
 
 function makeCardBinding(id) {
   const root = document.getElementById(id)

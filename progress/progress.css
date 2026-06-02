@@ -193,7 +193,7 @@ main {
 .tree .node {
   padding: 4px 14px;
   display: grid;
-  grid-template-columns: 22px auto 1fr auto;
+  grid-template-columns: 22px auto minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   font-size: 13px;
@@ -201,7 +201,14 @@ main {
 }
 .tree .node:hover { background: var(--surface-2); }
 .tree .node .indent { display: inline-block; width: 16px; }
-.tree .node.cached .title { color: var(--muted); }
+.tree .node.status-current .title { color: var(--muted); }
+.tree .node.status-stale .title { color: var(--text); }
+.tree .node .badge.muted { color: var(--muted); border-color: var(--border); }
+.tree .node .badge.accent {
+  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+}
 .tree .node.project { font-weight: 600; }
 .tree .node.project .title::after {
   content: attr(data-count);
