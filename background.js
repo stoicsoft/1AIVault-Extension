@@ -26,9 +26,17 @@ async function reconcileAlarm() {
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== ALARM) return
   const { autoSync } = await chrome.storage.local.get('autoSync')
-  // Belt-and-braces: even if a stale alarm fires, honor the current toggle.
-  if (autoSync !== true) return
-  await runSync({ reason: 'alarm', filter: null })
+  // Belt-and-braces: even if a stale alarm fires (e.g. from a previous
+  // session before the user disabled the toggle), honor the current state
+  // *and* purge the alarm so it can't fire again until autoSync flips on.
+  if (autoSync !== true) {
+    chrome.alarms.clear(ALARM)
+    return
+  }
+  // Passive: never open a claude.ai tab to do a background sync. If the user
+  // doesn't have claude.ai open, we just skip — they'll get a real sync the
+  // next time they're already on the site, or whenever they click Sync.
+  await runSync({ reason: 'alarm', filter: null, allowOpenTab: false })
 })
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -41,13 +49,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true
   }
   if (msg.type === 'discover') {
-    runDiscovery(msg.services).then(sendResponse)
+    runDiscovery(msg.services, { allowOpenTab: true }).then(sendResponse)
     return true
   }
   if (msg.type === 'sync-now') {
     runSync({
       reason: msg.reason || 'manual',
       filter: msg.filter || null, // { claude: string[] | null, chatgpt: string[] | null }
+      allowOpenTab: true, // user-initiated — OK to open a background claude.ai tab if needed
     }).then(sendResponse)
     return true
   }
@@ -77,21 +86,21 @@ function emit(event) {
 }
 
 /** services: array of 'claude'|'chatgpt' — selective discovery. Defaults to both. */
-async function runDiscovery(services) {
+async function runDiscovery(services, { allowOpenTab = true } = {}) {
   const want = Array.isArray(services) && services.length > 0
     ? new Set(services)
     : new Set(['claude', 'chatgpt'])
   emit({ stage: 'discover-start', services: [...want] })
   const result = { claude: null, chatgpt: null }
   const jobs = []
-  if (want.has('claude')) jobs.push(discoverClaude().then((r) => (result.claude = r)))
+  if (want.has('claude')) jobs.push(discoverClaude({ allowOpenTab }).then((r) => (result.claude = r)))
   if (want.has('chatgpt')) jobs.push(discoverChatGPT().then((r) => (result.chatgpt = r)))
   await Promise.all(jobs)
   emit({ stage: 'discover-end' })
   return result
 }
 
-async function runSync({ reason, filter }) {
+async function runSync({ reason, filter, allowOpenTab = true }) {
   if (inFlight) return inFlight
   inFlight = (async () => {
     const start = Date.now()
@@ -108,7 +117,7 @@ async function runSync({ reason, filter }) {
 
     if (runClaude) {
       try {
-        result.claude = await syncClaude(emit, { selectedIds: claudeIds })
+        result.claude = await syncClaude(emit, { selectedIds: claudeIds, allowOpenTab })
       } catch (err) {
         const message = err && err.message ? err.message : String(err)
         emit({ stage: 'fatal', service: 'claude', error: message })
@@ -134,9 +143,15 @@ async function runSync({ reason, filter }) {
 
     const elapsed = Date.now() - start
     emit({ stage: 'session-end', elapsedMs: elapsed, result })
-    await chrome.storage.local.set({
-      lastSync: { at: Date.now(), elapsedMs: elapsed, result },
-    })
+    // Don't pollute the "last sync" line with no-op passive runs — the auto-
+    // sync alarm exits cleanly when there's no claude.ai tab to fetch from,
+    // and we don't want every quiet skip overwriting the real last-sync time.
+    const passive = result.claude && result.claude.passiveSkipped
+    if (!passive) {
+      await chrome.storage.local.set({
+        lastSync: { at: Date.now(), elapsedMs: elapsed, result },
+      })
+    }
     return result
   })()
   try {
