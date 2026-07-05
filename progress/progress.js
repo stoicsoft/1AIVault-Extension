@@ -19,8 +19,8 @@ const headerActions = document.getElementById('headerActions')
 
 // ─── State ─────────────────────────────────────────────────────────────────
 // All checkbox state lives in `selection.{claude,chatgpt}` (Set<id>) and is
-// updated as the user clicks. The tree is rendered once after discovery and
-// only re-rendered when the search filter changes.
+// updated as the user clicks. Display controls only change which rows are
+// visible; the final sync still sends the selected IDs.
 
 let discovery = null
 const selection = {
@@ -28,6 +28,10 @@ const selection = {
   chatgpt: new Set(),
 }
 let filter = ''
+let viewMode = 'projects'
+let statusFilter = 'all'
+let sortMode = 'updated-desc'
+let queryNewOnly = false
 
 // ─── Bootstrap ─────────────────────────────────────────────────────────────
 
@@ -149,10 +153,15 @@ function setHeaderActions(stage) {
 
 const tree = document.getElementById('tree')
 const searchInput = document.getElementById('searchInput')
+const projectsViewBtn = document.getElementById('projectsViewBtn')
+const entriesViewBtn = document.getElementById('entriesViewBtn')
+const statusFilterEl = document.getElementById('statusFilter')
+const sortSelect = document.getElementById('sortSelect')
 const selectAllBtn = document.getElementById('selectAllBtn')
 const deselectAllBtn = document.getElementById('deselectAllBtn')
 const onlyNewBtn = document.getElementById('onlyNewBtn')
 const onlyUpdatedBtn = document.getElementById('onlyUpdatedBtn')
+const queryNewOnlyInput = document.getElementById('queryNewOnlyInput')
 const summaryEl = document.getElementById('summary')
 const startBtn = document.getElementById('startBtn')
 
@@ -160,12 +169,30 @@ searchInput.addEventListener('input', () => {
   filter = searchInput.value.trim().toLowerCase()
   renderTree()
 })
+projectsViewBtn.addEventListener('click', () => {
+  viewMode = 'projects'
+  renderTree()
+})
+entriesViewBtn.addEventListener('click', () => {
+  viewMode = 'entries'
+  renderTree()
+})
+statusFilterEl.addEventListener('change', () => {
+  statusFilter = statusFilterEl.value
+  renderTree()
+})
+sortSelect.addEventListener('change', () => {
+  sortMode = sortSelect.value
+  renderTree()
+})
 selectAllBtn.addEventListener('click', () => {
-  forEachVisibleConv((service, id) => selection[service].add(id))
+  forEachVisibleConv((service, conv) => {
+    if (isQueryable(conv)) selection[service].add(conv.id)
+  })
   renderTree()
 })
 deselectAllBtn.addEventListener('click', () => {
-  forEachVisibleConv((service, id) => selection[service].delete(id))
+  forEachVisibleConv((service, conv) => selection[service].delete(conv.id))
   renderTree()
 })
 onlyNewBtn.addEventListener('click', () => {
@@ -176,34 +203,53 @@ onlyUpdatedBtn.addEventListener('click', () => {
   // Keep only conversations the vault already has but that changed upstream.
   selectByStatus((c) => c.vaultStatus === 'stale')
 })
+queryNewOnlyInput.addEventListener('change', () => {
+  queryNewOnly = queryNewOnlyInput.checked
+  pruneSelectionForQuery()
+  renderTree()
+})
 
 function selectByStatus(predicate) {
-  if (discovery && discovery.claude && discovery.claude.signedIn) {
-    selection.claude.clear()
-    for (const org of discovery.claude.orgs) {
-      for (const p of org.projects) {
-        for (const c of p.conversations) if (predicate(c)) selection.claude.add(c.id)
-      }
-      for (const c of org.unfiled) if (predicate(c)) selection.claude.add(c.id)
-    }
-  }
-  if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
-    selection.chatgpt.clear()
-    for (const c of discovery.chatgpt.conversations) if (predicate(c)) selection.chatgpt.add(c.id)
-  }
+  selection.claude.clear()
+  selection.chatgpt.clear()
+  forEachConv((service, conv) => {
+    if (predicate(conv) && isQueryable(conv)) selection[service].add(conv.id)
+  })
   renderTree()
 }
 startBtn.addEventListener('click', startSync)
 
 function renderTree() {
   tree.innerHTML = ''
-  if (discovery && discovery.claude) {
-    tree.appendChild(renderClaudeSection(discovery.claude))
+  if (viewMode === 'entries') {
+    tree.appendChild(renderEntriesSection())
+  } else {
+    if (discovery && discovery.claude) {
+      tree.appendChild(renderClaudeSection(discovery.claude))
+    }
+    if (discovery && discovery.chatgpt) {
+      tree.appendChild(renderChatGPTSection(discovery.chatgpt))
+    }
   }
-  if (discovery && discovery.chatgpt) {
-    tree.appendChild(renderChatGPTSection(discovery.chatgpt))
-  }
+  updateControls()
   updateSummary()
+}
+
+function renderEntriesSection() {
+  const root = section('Entries')
+  appendDiscoveryWarnings(root)
+  const list = sortedEntries(getAllEntries().filter(entryMatches))
+  if (list.length === 0) {
+    root.appendChild(warn(emptyMessage()))
+    return root
+  }
+  const container = document.createElement('div')
+  container.className = 'children'
+  for (const entry of list) {
+    container.appendChild(convRow(entry.service, entry.conv, false, entryMeta(entry)))
+  }
+  root.appendChild(container)
+  return root
 }
 
 function renderClaudeSection(data) {
@@ -216,30 +262,32 @@ function renderClaudeSection(data) {
     root.appendChild(warn(`Error: ${data.error}`))
     return root
   }
-  const matches = (s) => !filter || (s.title || '').toLowerCase().includes(filter)
+  let rendered = 0
   for (const org of data.orgs) {
-    // Projects
+    const projectNodes = []
     for (const proj of org.projects) {
-      const visibleChildren = proj.conversations.filter(matches)
-      if (filter && visibleChildren.length === 0) continue
-      const projNode = projectRow('claude', proj, visibleChildren.length)
+      const visibleChildren = visibleConversations('claude', proj.conversations, proj.name, org.name)
+      if (visibleChildren.length === 0) continue
+      projectNodes.push({ proj, visibleChildren })
+    }
+    const visibleUnfiled = visibleConversations('claude', org.unfiled, 'Unfiled', org.name)
+    if (visibleUnfiled.length > 0) {
+      projectNodes.push({
+        proj: { uuid: `__unfiled__:${org.uuid}`, name: 'Unfiled', conversations: org.unfiled },
+        visibleChildren: visibleUnfiled,
+      })
+    }
+    for (const { proj, visibleChildren } of sortProjectNodes(projectNodes)) {
+      const projNode = projectRow('claude', proj, visibleChildren)
       root.appendChild(projNode.row)
       for (const c of visibleChildren) {
-        projNode.children.appendChild(convRow('claude', c, true))
+        projNode.children.appendChild(convRow('claude', c, true, `${org.name} / ${proj.name}`))
       }
       root.appendChild(projNode.children)
-    }
-    // Unfiled
-    const visibleUnfiled = org.unfiled.filter(matches)
-    if (visibleUnfiled.length > 0) {
-      const unfiledNode = projectRow('claude', { uuid: '__unfiled__', name: 'Unfiled', conversations: org.unfiled }, visibleUnfiled.length)
-      root.appendChild(unfiledNode.row)
-      for (const c of visibleUnfiled) {
-        unfiledNode.children.appendChild(convRow('claude', c, true))
-      }
-      root.appendChild(unfiledNode.children)
+      rendered++
     }
   }
+  if (rendered === 0) root.appendChild(warn(emptyMessage()))
   return root
 }
 
@@ -253,17 +301,162 @@ function renderChatGPTSection(data) {
     root.appendChild(warn(`Error: ${data.error}`))
     return root
   }
-  const matches = (s) => !filter || (s.title || '').toLowerCase().includes(filter)
-  const list = data.conversations.filter(matches)
+  const list = sortedEntries(
+    data.conversations
+      .map((conv) => ({ service: 'chatgpt', conv, projectName: '', orgName: '' }))
+      .filter(entryMatches)
+  )
   if (list.length === 0) {
-    root.appendChild(warn(filter ? 'No conversations match the filter.' : 'No conversations found.'))
+    root.appendChild(warn(emptyMessage()))
     return root
   }
   const container = document.createElement('div')
   container.className = 'children'
-  for (const c of list) container.appendChild(convRow('chatgpt', c, false))
+  for (const entry of list) container.appendChild(convRow('chatgpt', entry.conv, false, entryMeta(entry)))
   root.appendChild(container)
   return root
+}
+
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+
+function getAllEntries() {
+  const entries = []
+  if (discovery && discovery.claude && discovery.claude.signedIn && !discovery.claude.error) {
+    for (const org of discovery.claude.orgs) {
+      for (const p of org.projects) {
+        for (const conv of p.conversations) {
+          entries.push({ service: 'claude', conv, projectName: p.name, orgName: org.name })
+        }
+      }
+      for (const conv of org.unfiled) {
+        entries.push({ service: 'claude', conv, projectName: 'Unfiled', orgName: org.name })
+      }
+    }
+  }
+  if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn && !discovery.chatgpt.error) {
+    for (const conv of discovery.chatgpt.conversations) {
+      entries.push({ service: 'chatgpt', conv, projectName: '', orgName: '' })
+    }
+  }
+  return entries
+}
+
+function appendDiscoveryWarnings(root) {
+  if (discovery && discovery.claude) appendServiceWarning(root, 'Claude.ai', discovery.claude)
+  if (discovery && discovery.chatgpt) appendServiceWarning(root, 'ChatGPT', discovery.chatgpt)
+}
+
+function appendServiceWarning(root, label, data) {
+  if (!data.signedIn) {
+    root.appendChild(warn(`${label}: not signed in on this browser.`))
+  } else if (data.error) {
+    root.appendChild(warn(`${label}: ${data.error}`))
+  }
+}
+
+function visibleConversations(service, conversations, projectName, orgName) {
+  return sortedEntries(
+    conversations
+      .map((conv) => ({ service, conv, projectName, orgName }))
+      .filter(entryMatches)
+  ).map((entry) => entry.conv)
+}
+
+function entryMatches(entry) {
+  if (!statusMatches(entry.conv)) return false
+  if (!filter) return true
+  const haystack = [
+    entry.conv.title,
+    entry.projectName,
+    entry.orgName,
+    labelFor(entry.service),
+  ].join(' ').toLowerCase()
+  return haystack.includes(filter)
+}
+
+function statusMatches(conv) {
+  const status = conv.vaultStatus || 'absent'
+  if (statusFilter === 'importable') return status === 'absent' || status === 'stale'
+  if (statusFilter === 'new') return status === 'absent'
+  if (statusFilter === 'updated') return status === 'stale'
+  if (statusFilter === 'imported') return status === 'current'
+  return true
+}
+
+function sortedEntries(entries) {
+  return entries.slice().sort(compareEntries)
+}
+
+function compareEntries(a, b) {
+  if (sortMode === 'updated-asc') {
+    return compareUpdated(a, b, 1) || compareTitle(a, b)
+  }
+  if (sortMode === 'title-asc') {
+    return compareTitle(a, b) || compareUpdated(a, b, -1)
+  }
+  if (sortMode === 'project-asc') {
+    return collator.compare(a.projectName || '', b.projectName || '') || compareTitle(a, b)
+  }
+  if (sortMode === 'status-asc') {
+    return statusRank(a.conv) - statusRank(b.conv) || compareUpdated(a, b, -1) || compareTitle(a, b)
+  }
+  if (sortMode === 'service-asc') {
+    return collator.compare(labelFor(a.service), labelFor(b.service)) || compareUpdated(a, b, -1) || compareTitle(a, b)
+  }
+  return compareUpdated(a, b, -1) || compareTitle(a, b)
+}
+
+function compareUpdated(a, b, direction) {
+  return ((a.conv.updatedAt || 0) - (b.conv.updatedAt || 0)) * direction
+}
+
+function compareTitle(a, b) {
+  return collator.compare(a.conv.title || '', b.conv.title || '')
+}
+
+function sortProjectNodes(nodes) {
+  return nodes.slice().sort((a, b) => {
+    if (sortMode === 'updated-asc') {
+      return projectUpdated(a) - projectUpdated(b) || collator.compare(a.proj.name || '', b.proj.name || '')
+    }
+    if (sortMode === 'title-asc' || sortMode === 'project-asc' || sortMode === 'service-asc') {
+      return collator.compare(a.proj.name || '', b.proj.name || '')
+    }
+    if (sortMode === 'status-asc') {
+      return projectStatusRank(a) - projectStatusRank(b) || collator.compare(a.proj.name || '', b.proj.name || '')
+    }
+    return projectUpdated(b) - projectUpdated(a) || collator.compare(a.proj.name || '', b.proj.name || '')
+  })
+}
+
+function projectUpdated(node) {
+  let latest = 0
+  for (const c of node.visibleChildren) latest = Math.max(latest, c.updatedAt || 0)
+  return latest
+}
+
+function projectStatusRank(node) {
+  let rank = 99
+  for (const c of node.visibleChildren) rank = Math.min(rank, statusRank(c))
+  return rank
+}
+
+function statusRank(conv) {
+  const status = conv.vaultStatus || 'absent'
+  if (status === 'absent') return 0
+  if (status === 'stale') return 1
+  if (status === 'current') return 2
+  return 3
+}
+
+function entryMeta(entry) {
+  if (entry.service === 'claude') return `${labelFor(entry.service)} / ${entry.projectName || 'Unfiled'}`
+  return labelFor(entry.service)
+}
+
+function emptyMessage() {
+  if (filter || statusFilter !== 'all') return 'No entries match the current search or filter.'
+  return 'No conversations found.'
 }
 
 function section(title) {
@@ -290,7 +483,7 @@ function badge(text, className) {
   return b
 }
 
-function projectRow(service, proj, visibleCount) {
+function projectRow(service, proj, visibleConversations) {
   const row = document.createElement('div')
   row.className = 'node project'
   const checkbox = document.createElement('input')
@@ -301,10 +494,10 @@ function projectRow(service, proj, visibleCount) {
   const title = document.createElement('span')
   title.className = 'title'
   title.textContent = proj.name
-  title.dataset.count = String(visibleCount)
+  title.dataset.count = String(visibleConversations.length)
   const when = document.createElement('span')
   when.className = 'when'
-  when.textContent = ''
+  when.textContent = formatProjectDate(visibleConversations)
   row.appendChild(checkbox)
   row.appendChild(caret)
   row.appendChild(title)
@@ -321,17 +514,19 @@ function projectRow(service, proj, visibleCount) {
     caret.classList.toggle('open', !open)
   }
   // Project-level checkbox toggles all children in this project.
-  const childIds = proj.conversations.map((c) => c.id)
+  const childIds = visibleConversations.filter(isQueryable).map((c) => c.id)
   const refreshCheckbox = () => {
     const sel = selection[service]
     let on = 0
     for (const id of childIds) if (sel.has(id)) on++
     checkbox.checked = on === childIds.length && childIds.length > 0
     checkbox.indeterminate = on > 0 && on < childIds.length
+    checkbox.disabled = childIds.length === 0
   }
   refreshCheckbox()
   checkbox.onclick = (e) => {
     e.stopPropagation()
+    if (checkbox.disabled) return
     const sel = selection[service]
     if (checkbox.checked) for (const id of childIds) sel.add(id)
     else for (const id of childIds) sel.delete(id)
@@ -345,69 +540,119 @@ function projectRow(service, proj, visibleCount) {
   return { row, children, refreshCheckbox }
 }
 
-function convRow(service, conv, indented) {
+function convRow(service, conv, indented, metaText = '') {
   const status = conv.vaultStatus || 'absent'
   const node = document.createElement('div')
   node.className = 'node status-' + status
+  if (!isQueryable(conv)) node.classList.add('not-queryable')
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'
   checkbox.checked = selection[service].has(conv.id)
+  checkbox.disabled = !isQueryable(conv)
   const indent = document.createElement('span')
   indent.className = 'indent'
   if (!indented) indent.style.display = 'none'
   const title = document.createElement('span')
   title.className = 'title'
   title.textContent = conv.title || '(untitled)'
+  const meta = document.createElement('span')
+  meta.className = 'meta'
+  meta.textContent = metaText
   const right = document.createElement('span')
   right.className = 'when'
-  right.textContent = conv.updatedAt ? new Date(conv.updatedAt * 1000).toLocaleDateString() : ''
+  right.textContent = formatDate(conv.updatedAt)
   node.appendChild(checkbox)
   node.appendChild(indent)
   node.appendChild(title)
+  node.appendChild(meta)
   node.appendChild(right)
-  if (status === 'current') {
-    node.appendChild(badge('in vault', 'badge muted'))
+  if (status === 'absent') {
+    node.appendChild(badge('new', 'badge success'))
+  } else if (status === 'current') {
+    node.appendChild(badge('imported', 'badge muted'))
   } else if (status === 'stale') {
     node.appendChild(badge('updated', 'badge accent'))
   }
 
   checkbox.onclick = (e) => {
     e.stopPropagation()
+    if (checkbox.disabled) return
     if (checkbox.checked) selection[service].add(conv.id)
     else selection[service].delete(conv.id)
     updateSummary()
   }
   node.onclick = (e) => {
-    if (e.target === checkbox) return
+    if (e.target === checkbox || checkbox.disabled) return
     checkbox.checked = !checkbox.checked
     checkbox.onclick(e)
   }
   return node
 }
 
+function formatDate(epochSec) {
+  return epochSec ? new Date(epochSec * 1000).toLocaleDateString() : ''
+}
+
+function formatProjectDate(conversations) {
+  let latest = 0
+  for (const c of conversations) latest = Math.max(latest, c.updatedAt || 0)
+  return formatDate(latest)
+}
+
 function updateSummary() {
   const c = selection.claude.size
   const g = selection.chatgpt.size
-  // Break the selection down so the user can see whether they're about to
-  // re-classify already-imported conversations.
+  const selectedForSync = getSelectedIdsForSync()
+  const syncCount = selectedForSync.claude.length + selectedForSync.chatgpt.length
   let newCount = 0
   let updatedCount = 0
-  let alreadyCount = 0
+  let importedCount = 0
   forEachConv((service, conv) => {
     if (!selection[service].has(conv.id)) return
-    if (conv.vaultStatus === 'absent') newCount++
-    else if (conv.vaultStatus === 'stale') updatedCount++
-    else if (conv.vaultStatus === 'current') alreadyCount++
+    const status = conv.vaultStatus || 'absent'
+    if (status === 'absent') newCount++
+    else if (status === 'stale') updatedCount++
+    else if (status === 'current') importedCount++
   })
+  const entries = getAllEntries()
+  const visibleCount = entries.filter(entryMatches).length
   const parts = [
     `${c + g} selected`,
     `${c} Claude · ${g} ChatGPT`,
+    `${newCount} new · ${updatedCount} updated · ${importedCount} imported`,
   ]
-  if (newCount || updatedCount || alreadyCount) {
-    parts.push(`${newCount} new · ${updatedCount} updated · ${alreadyCount} unchanged`)
-  }
+  if (queryNewOnly) parts.push(`${syncCount} to query`)
+  parts.push(`${visibleCount}/${entries.length} visible`)
   summaryEl.textContent = parts.join(' · ')
-  startBtn.disabled = c + g === 0
+  startBtn.disabled = syncCount === 0
+}
+
+function updateControls() {
+  projectsViewBtn.classList.toggle('active', viewMode === 'projects')
+  entriesViewBtn.classList.toggle('active', viewMode === 'entries')
+  statusFilterEl.value = statusFilter
+  sortSelect.value = sortMode
+  queryNewOnlyInput.checked = queryNewOnly
+  onlyUpdatedBtn.disabled = queryNewOnly
+}
+
+function isQueryable(conv) {
+  return !queryNewOnly || (conv.vaultStatus || 'absent') === 'absent'
+}
+
+function pruneSelectionForQuery() {
+  if (!queryNewOnly) return
+  forEachConv((service, conv) => {
+    if (!isQueryable(conv)) selection[service].delete(conv.id)
+  })
+}
+
+function getSelectedIdsForSync() {
+  const selected = { claude: [], chatgpt: [] }
+  forEachConv((service, conv) => {
+    if (selection[service].has(conv.id) && isQueryable(conv)) selected[service].push(conv.id)
+  })
+  return selected
 }
 
 function forEachConv(fn) {
@@ -423,21 +668,16 @@ function forEachConv(fn) {
 }
 
 function forEachVisibleConv(fn) {
-  const matches = (s) => !filter || (s.title || '').toLowerCase().includes(filter)
-  if (discovery && discovery.claude && discovery.claude.signedIn) {
-    for (const org of discovery.claude.orgs) {
-      for (const p of org.projects) for (const c of p.conversations) if (matches(c)) fn('claude', c.id)
-      for (const c of org.unfiled) if (matches(c)) fn('claude', c.id)
-    }
-  }
-  if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
-    for (const c of discovery.chatgpt.conversations) if (matches(c)) fn('chatgpt', c.id)
+  for (const entry of getAllEntries()) {
+    if (entryMatches(entry)) fn(entry.service, entry.conv)
   }
 }
 
 // ─── Sync run ──────────────────────────────────────────────────────────────
 
 async function startSync() {
+  const selectedForSync = getSelectedIdsForSync()
+  if (selectedForSync.claude.length + selectedForSync.chatgpt.length === 0) return
   resetRunCards()
   show('run')
   setHeaderActions('running')
@@ -446,8 +686,8 @@ async function startSync() {
     type: 'sync-now',
     reason: 'manual',
     filter: {
-      claude: [...selection.claude],
-      chatgpt: [...selection.chatgpt],
+      claude: selectedForSync.claude,
+      chatgpt: selectedForSync.chatgpt,
     },
   })
 }

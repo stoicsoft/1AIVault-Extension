@@ -50,11 +50,34 @@
       <!-- selection -->
       <section id="view-select" class="view hidden">
         <div class="toolbar">
-          <input id="searchInput" type="search" placeholder="Filter by title…" />
-          <button id="selectAllBtn" class="secondary">Select all</button>
-          <button id="deselectAllBtn" class="secondary">Deselect all</button>
-          <button id="onlyNewBtn" class="secondary">Only new</button>
-          <button id="onlyUpdatedBtn" class="secondary">Only updated</button>
+          <input id="searchInput" type="search" placeholder="Search title, project, or service…" />
+          <div class="segmented" aria-label="List view">
+            <button id="projectsViewBtn" class="secondary active" type="button">Projects</button>
+            <button id="entriesViewBtn" class="secondary" type="button">Entries</button>
+          </div>
+          <select id="statusFilter" aria-label="Filter by import status">
+            <option value="all">All entries</option>
+            <option value="importable">New + updated</option>
+            <option value="new">New only</option>
+            <option value="updated">Updated only</option>
+            <option value="imported">Imported</option>
+          </select>
+          <select id="sortSelect" aria-label="Sort entries">
+            <option value="updated-desc">Newest first</option>
+            <option value="updated-asc">Oldest first</option>
+            <option value="title-asc">Title A-Z</option>
+            <option value="project-asc">Project A-Z</option>
+            <option value="status-asc">Status</option>
+            <option value="service-asc">Service</option>
+          </select>
+          <button id="selectAllBtn" class="secondary">Select visible</button>
+          <button id="deselectAllBtn" class="secondary">Clear visible</button>
+          <button id="onlyNewBtn" class="secondary">Select new</button>
+          <button id="onlyUpdatedBtn" class="secondary">Select updated</button>
+          <label class="query-toggle" title="When enabled, Start import sends only entries that are not in the vault yet.">
+            <input id="queryNewOnlyInput" type="checkbox" />
+            <span>Query new only</span>
+          </label>
           <span class="grow"></span>
           <div id="summary" class="summary muted">—</div>
           <button id="startBtn">Start import →</button>
