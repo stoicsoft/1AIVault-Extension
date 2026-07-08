@@ -94,7 +94,7 @@ async function runDiscovery(services, { allowOpenTab = true } = {}) {
   const result = { claude: null, chatgpt: null }
   const jobs = []
   if (want.has('claude')) jobs.push(discoverClaude({ allowOpenTab }).then((r) => (result.claude = r)))
-  if (want.has('chatgpt')) jobs.push(discoverChatGPT().then((r) => (result.chatgpt = r)))
+  if (want.has('chatgpt')) jobs.push(discoverChatGPT({ allowOpenTab }).then((r) => (result.chatgpt = r)))
   await Promise.all(jobs)
   emit({ stage: 'discover-end' })
   return result
@@ -130,7 +130,7 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
 
     if (runChatgpt) {
       try {
-        result.chatgpt = await syncChatGPT(emit, { selectedIds: chatgptIds })
+        result.chatgpt = await syncChatGPT(emit, { selectedIds: chatgptIds, allowOpenTab })
       } catch (err) {
         const message = err && err.message ? err.message : String(err)
         emit({ stage: 'fatal', service: 'chatgpt', error: message })
@@ -144,9 +144,14 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
     const elapsed = Date.now() - start
     emit({ stage: 'session-end', elapsedMs: elapsed, result })
     // Don't pollute the "last sync" line with no-op passive runs — the auto-
-    // sync alarm exits cleanly when there's no claude.ai tab to fetch from,
+    // sync alarm exits cleanly when neither service has a tab to fetch from,
     // and we don't want every quiet skip overwriting the real last-sync time.
-    const passive = result.claude && result.claude.passiveSkipped
+    const claudeIdle = !result.claude || result.claude.passiveSkipped || result.claude.skipped
+    const chatgptIdle = !result.chatgpt || result.chatgpt.passiveSkipped || result.chatgpt.skipped
+    const anyPassive =
+      (result.claude && result.claude.passiveSkipped) ||
+      (result.chatgpt && result.chatgpt.passiveSkipped)
+    const passive = anyPassive && claudeIdle && chatgptIdle
     if (!passive) {
       await chrome.storage.local.set({
         lastSync: { at: Date.now(), elapsedMs: elapsed, result },
