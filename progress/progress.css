@@ -47,6 +47,18 @@ header {
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
 }
+.title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.title .brand-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+}
+.title .title-text { min-width: 0; }
 .title .logo { font-weight: 600; font-size: 15px; }
 .title .subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
@@ -237,6 +249,9 @@ main {
   align-items: center;
   font-size: 13px;
   cursor: pointer;
+}
+.tree .node.flat {
+  grid-template-columns: 22px minmax(0, 1.35fr) minmax(0, 0.75fr) auto auto;
 }
 .tree .node:hover { background: var(--surface-2); }
 .tree .node.not-queryable {

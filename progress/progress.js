@@ -544,6 +544,7 @@ function convRow(service, conv, indented, metaText = '') {
   const status = conv.vaultStatus || 'absent'
   const node = document.createElement('div')
   node.className = 'node status-' + status
+  if (!indented) node.classList.add('flat')
   if (!isQueryable(conv)) node.classList.add('not-queryable')
   const checkbox = document.createElement('input')
   checkbox.type = 'checkbox'

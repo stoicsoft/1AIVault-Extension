@@ -10,10 +10,12 @@ const lastSync = document.getElementById('lastSync')
 const serviceRows = document.getElementById('serviceRows')
 const pairBadge = document.getElementById('pairBadge')
 const autoSyncToggle = document.getElementById('autoSyncToggle')
+const extensionVersion = document.getElementById('extensionVersion')
 
 init()
 
 async function init() {
+  extensionVersion.textContent = `v${chrome.runtime.getManifest().version}`
   const t = await getPairToken()
   if (t) tokenInput.value = t
   setPairBadge(!!t)

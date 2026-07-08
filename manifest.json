@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "1AIVault Sync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Syncs your Claude.ai and ChatGPT conversations to the 1AIVault desktop app on this machine.",
   "permissions": ["storage", "alarms", "declarativeNetRequestWithHostAccess", "scripting", "tabs"],
   "host_permissions": [
