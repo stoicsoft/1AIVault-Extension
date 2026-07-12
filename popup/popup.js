@@ -76,6 +76,7 @@ async function refreshLastSync() {
   if (ls.result) {
     serviceRows.appendChild(svcRow('Claude.ai', ls.result.claude))
     serviceRows.appendChild(svcRow('ChatGPT', ls.result.chatgpt))
+    serviceRows.appendChild(svcRow('Claude Design', ls.result.design))
   }
 }
 

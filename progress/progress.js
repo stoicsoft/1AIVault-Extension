@@ -26,6 +26,7 @@ let discovery = null
 const selection = {
   claude: new Set(),
   chatgpt: new Set(),
+  design: new Set(),
 }
 let filter = ''
 let viewMode = 'projects'
@@ -69,13 +70,13 @@ async function renderLastSyncSummary() {
     if (svc.signedIn === false) return `${name}: not signed in`
     return `${name}: +${svc.imported || 0} new`
   }
-  el.textContent = `Last sync ${ago} — ${describe(r.claude, 'Claude.ai')}, ${describe(r.chatgpt, 'ChatGPT')}`
+  el.textContent = `Last sync ${ago} — ${describe(r.claude, 'Claude.ai')}, ${describe(r.chatgpt, 'ChatGPT')}, ${describe(r.design, 'Design')}`
 }
 
 document.querySelectorAll('.picker-card').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const which = btn.dataset.service
-    const services = which === 'both' ? ['claude', 'chatgpt'] : [which]
+    const services = which === 'both' ? ['claude', 'chatgpt', 'design'] : [which]
     const loadingMsg = document.getElementById('loadingMsg')
     if (loadingMsg) {
       loadingMsg.textContent = `Discovering ${services.map(labelFor).join(' + ')}…`
@@ -96,6 +97,7 @@ function buildInitialSelection() {
   // to re-classify conversations that haven't changed.
   selection.claude.clear()
   selection.chatgpt.clear()
+  selection.design.clear()
   const needsImport = (c) => c.vaultStatus !== 'current'
   if (discovery && discovery.claude && discovery.claude.signedIn) {
     for (const org of discovery.claude.orgs) {
@@ -105,6 +107,9 @@ function buildInitialSelection() {
   }
   if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
     for (const c of discovery.chatgpt.conversations) if (needsImport(c)) selection.chatgpt.add(c.id)
+  }
+  if (discovery && discovery.design && discovery.design.signedIn) {
+    for (const c of discovery.design.projects) if (needsImport(c)) selection.design.add(c.id)
   }
   updateSummary()
 }
@@ -212,6 +217,7 @@ queryNewOnlyInput.addEventListener('change', () => {
 function selectByStatus(predicate) {
   selection.claude.clear()
   selection.chatgpt.clear()
+  selection.design.clear()
   forEachConv((service, conv) => {
     if (predicate(conv) && isQueryable(conv)) selection[service].add(conv.id)
   })
@@ -229,6 +235,9 @@ function renderTree() {
     }
     if (discovery && discovery.chatgpt) {
       tree.appendChild(renderChatGPTSection(discovery.chatgpt))
+    }
+    if (discovery && discovery.design) {
+      tree.appendChild(renderDesignSection(discovery.design))
     }
   }
   updateControls()
@@ -317,6 +326,32 @@ function renderChatGPTSection(data) {
   return root
 }
 
+function renderDesignSection(data) {
+  const root = section('Claude Design')
+  if (!data.signedIn) {
+    root.appendChild(warn(`Not signed in on this browser. Open claude.ai, sign in, then Re-scan.`))
+    return root
+  }
+  if (data.error) {
+    root.appendChild(warn(`Error: ${data.error}`))
+    return root
+  }
+  const list = sortedEntries(
+    (data.projects || [])
+      .map((conv) => ({ service: 'design', conv, projectName: '', orgName: '' }))
+      .filter(entryMatches)
+  )
+  if (list.length === 0) {
+    root.appendChild(warn(emptyMessage()))
+    return root
+  }
+  const container = document.createElement('div')
+  container.className = 'children'
+  for (const entry of list) container.appendChild(convRow('design', entry.conv, false, entryMeta(entry)))
+  root.appendChild(container)
+  return root
+}
+
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
 function getAllEntries() {
@@ -338,12 +373,18 @@ function getAllEntries() {
       entries.push({ service: 'chatgpt', conv, projectName: '', orgName: '' })
     }
   }
+  if (discovery && discovery.design && discovery.design.signedIn && !discovery.design.error) {
+    for (const conv of discovery.design.projects) {
+      entries.push({ service: 'design', conv, projectName: '', orgName: '' })
+    }
+  }
   return entries
 }
 
 function appendDiscoveryWarnings(root) {
   if (discovery && discovery.claude) appendServiceWarning(root, 'Claude.ai', discovery.claude)
   if (discovery && discovery.chatgpt) appendServiceWarning(root, 'ChatGPT', discovery.chatgpt)
+  if (discovery && discovery.design) appendServiceWarning(root, 'Claude Design', discovery.design)
 }
 
 function appendServiceWarning(root, label, data) {
@@ -603,8 +644,10 @@ function formatProjectDate(conversations) {
 function updateSummary() {
   const c = selection.claude.size
   const g = selection.chatgpt.size
+  const d = selection.design.size
   const selectedForSync = getSelectedIdsForSync()
-  const syncCount = selectedForSync.claude.length + selectedForSync.chatgpt.length
+  const syncCount =
+    selectedForSync.claude.length + selectedForSync.chatgpt.length + selectedForSync.design.length
   let newCount = 0
   let updatedCount = 0
   let importedCount = 0
@@ -618,8 +661,8 @@ function updateSummary() {
   const entries = getAllEntries()
   const visibleCount = entries.filter(entryMatches).length
   const parts = [
-    `${c + g} selected`,
-    `${c} Claude · ${g} ChatGPT`,
+    `${c + g + d} selected`,
+    `${c} Claude · ${g} ChatGPT · ${d} Design`,
     `${newCount} new · ${updatedCount} updated · ${importedCount} imported`,
   ]
   if (queryNewOnly) parts.push(`${syncCount} to query`)
@@ -649,7 +692,7 @@ function pruneSelectionForQuery() {
 }
 
 function getSelectedIdsForSync() {
-  const selected = { claude: [], chatgpt: [] }
+  const selected = { claude: [], chatgpt: [], design: [] }
   forEachConv((service, conv) => {
     if (selection[service].has(conv.id) && isQueryable(conv)) selected[service].push(conv.id)
   })
@@ -666,6 +709,9 @@ function forEachConv(fn) {
   if (discovery && discovery.chatgpt && discovery.chatgpt.signedIn) {
     for (const c of discovery.chatgpt.conversations) fn('chatgpt', c)
   }
+  if (discovery && discovery.design && discovery.design.signedIn) {
+    for (const c of discovery.design.projects) fn('design', c)
+  }
 }
 
 function forEachVisibleConv(fn) {
@@ -678,7 +724,11 @@ function forEachVisibleConv(fn) {
 
 async function startSync() {
   const selectedForSync = getSelectedIdsForSync()
-  if (selectedForSync.claude.length + selectedForSync.chatgpt.length === 0) return
+  if (
+    selectedForSync.claude.length + selectedForSync.chatgpt.length + selectedForSync.design.length ===
+    0
+  )
+    return
   resetRunCards()
   show('run')
   setHeaderActions('running')
@@ -689,6 +739,7 @@ async function startSync() {
     filter: {
       claude: selectedForSync.claude,
       chatgpt: selectedForSync.chatgpt,
+      design: selectedForSync.design,
     },
   })
 }
@@ -707,6 +758,7 @@ function subscribeProgress() {
 const cards = {
   claude: makeCardBinding('card-claude'),
   chatgpt: makeCardBinding('card-chatgpt'),
+  design: makeCardBinding('card-design'),
 }
 const logList = document.getElementById('logList')
 const autoscroll = document.getElementById('autoscroll')
@@ -714,6 +766,7 @@ const autoscroll = document.getElementById('autoscroll')
 const totals = {
   claude: { imported: 0, skipped: 0, errors: 0 },
   chatgpt: { imported: 0, skipped: 0, errors: 0 },
+  design: { imported: 0, skipped: 0, errors: 0 },
 }
 
 function resetRunCards() {
@@ -735,7 +788,8 @@ function consume(event) {
     const r = event.result || {}
     const claude = describeServiceResult(r.claude)
     const chatgpt = describeServiceResult(r.chatgpt)
-    appendLog(event, 'done', `Session complete · Claude: ${claude} · ChatGPT: ${chatgpt}`)
+    const design = describeServiceResult(r.design)
+    appendLog(event, 'done', `Session complete · Claude: ${claude} · ChatGPT: ${chatgpt} · Design: ${design}`)
     setHeaderActions('done')
     return
   }
@@ -828,7 +882,10 @@ function describeServiceResult(r) {
 }
 
 function labelFor(service) {
-  return service === 'claude' ? 'Claude.ai' : service === 'chatgpt' ? 'ChatGPT' : service
+  if (service === 'claude') return 'Claude.ai'
+  if (service === 'chatgpt') return 'ChatGPT'
+  if (service === 'design') return 'Claude Design'
+  return service
 }
 
 function appendLog(event, cls, message) {

@@ -4,6 +4,7 @@
 import { syncClaude } from './lib/claude.js'
 import { syncChatGPT } from './lib/chatgpt.js'
 import { discoverClaude, discoverChatGPT } from './lib/discover.js'
+import { discoverClaudeDesign, syncClaudeDesign } from './lib/claude-design.js'
 import { pingVault } from './lib/vault.js'
 
 const ALARM = '1aivault-sync'
@@ -85,16 +86,17 @@ function emit(event) {
   chrome.runtime.sendMessage({ type: 'sync-event', event: stamped }).catch(() => {})
 }
 
-/** services: array of 'claude'|'chatgpt' — selective discovery. Defaults to both. */
+/** services: array of 'claude'|'chatgpt'|'design' — selective discovery. Defaults to all. */
 async function runDiscovery(services, { allowOpenTab = true } = {}) {
   const want = Array.isArray(services) && services.length > 0
     ? new Set(services)
-    : new Set(['claude', 'chatgpt'])
+    : new Set(['claude', 'chatgpt', 'design'])
   emit({ stage: 'discover-start', services: [...want] })
-  const result = { claude: null, chatgpt: null }
+  const result = { claude: null, chatgpt: null, design: null }
   const jobs = []
   if (want.has('claude')) jobs.push(discoverClaude({ allowOpenTab }).then((r) => (result.claude = r)))
   if (want.has('chatgpt')) jobs.push(discoverChatGPT({ allowOpenTab }).then((r) => (result.chatgpt = r)))
+  if (want.has('design')) jobs.push(discoverClaudeDesign({ allowOpenTab }).then((r) => (result.design = r)))
   await Promise.all(jobs)
   emit({ stage: 'discover-end' })
   return result
@@ -109,11 +111,13 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
 
     const claudeIds = filter && Array.isArray(filter.claude) ? new Set(filter.claude) : null
     const chatgptIds = filter && Array.isArray(filter.chatgpt) ? new Set(filter.chatgpt) : null
+    const designIds = filter && Array.isArray(filter.design) ? new Set(filter.design) : null
 
-    const result = { reason, claude: null, chatgpt: null }
-    // If filter explicitly says "no Claude conversations", skip the service.
+    const result = { reason, claude: null, chatgpt: null, design: null }
+    // If filter explicitly says "no conversations" for a service, skip it.
     const runClaude = !filter || claudeIds === null || claudeIds.size > 0
     const runChatgpt = !filter || chatgptIds === null || chatgptIds.size > 0
+    const runDesign = !filter || designIds === null || designIds.size > 0
 
     if (runClaude) {
       try {
@@ -141,6 +145,19 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
       result.chatgpt = { skipped: true }
     }
 
+    if (runDesign) {
+      try {
+        result.design = await syncClaudeDesign(emit, { selectedIds: designIds, allowOpenTab })
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err)
+        emit({ stage: 'fatal', service: 'design', error: message })
+        result.design = { error: message }
+      }
+    } else {
+      emit({ stage: 'skipped', service: 'design' })
+      result.design = { skipped: true }
+    }
+
     const elapsed = Date.now() - start
     emit({ stage: 'session-end', elapsedMs: elapsed, result })
     // Don't pollute the "last sync" line with no-op passive runs — the auto-
@@ -148,10 +165,12 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
     // and we don't want every quiet skip overwriting the real last-sync time.
     const claudeIdle = !result.claude || result.claude.passiveSkipped || result.claude.skipped
     const chatgptIdle = !result.chatgpt || result.chatgpt.passiveSkipped || result.chatgpt.skipped
+    const designIdle = !result.design || result.design.passiveSkipped || result.design.skipped
     const anyPassive =
       (result.claude && result.claude.passiveSkipped) ||
-      (result.chatgpt && result.chatgpt.passiveSkipped)
-    const passive = anyPassive && claudeIdle && chatgptIdle
+      (result.chatgpt && result.chatgpt.passiveSkipped) ||
+      (result.design && result.design.passiveSkipped)
+    const passive = anyPassive && claudeIdle && chatgptIdle && designIdle
     if (!passive) {
       await chrome.storage.local.set({
         lastSync: { at: Date.now(), elapsedMs: elapsed, result },

@@ -32,9 +32,13 @@
               <div class="picker-title">ChatGPT</div>
               <div class="picker-sub">Recent conversations</div>
             </button>
+            <button class="picker-card" data-service="design">
+              <div class="picker-title">Claude Design</div>
+              <div class="picker-sub">Design projects</div>
+            </button>
             <button class="picker-card primary" data-service="both">
-              <div class="picker-title">Both</div>
-              <div class="picker-sub">Discover Claude.ai and ChatGPT</div>
+              <div class="picker-title">Everything</div>
+              <div class="picker-sub">Claude.ai, ChatGPT & Design</div>
             </button>
           </div>
           <div id="lastSyncInfo" class="muted" style="margin-top:18px"></div>
@@ -109,6 +113,20 @@
             <header>
               <span class="dot" data-status="idle"></span>
               <h2>ChatGPT</h2>
+              <span class="state" data-state>idle</span>
+            </header>
+            <div class="progress"><div class="bar" data-bar></div></div>
+            <div class="metric" data-metric>—</div>
+            <div class="counts">
+              <span><b data-imported>0</b> imported</span>
+              <span><b data-skipped>0</b> skipped</span>
+              <span><b data-errors>0</b> errors</span>
+            </div>
+          </article>
+          <article class="card" id="card-design">
+            <header>
+              <span class="dot" data-status="idle"></span>
+              <h2>Claude Design</h2>
               <span class="state" data-state>idle</span>
             </header>
             <div class="progress"><div class="bar" data-bar></div></div>

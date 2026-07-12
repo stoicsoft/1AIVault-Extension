@@ -1,6 +1,6 @@
 # 1AIVault Sync
 
-A browser extension that mirrors your **own** Claude.ai and ChatGPT conversations into the [1AIVault](https://1aivault.com) desktop app running on the same machine. Everything stays on your computer — the extension only talks to `claude.ai`, `chatgpt.com`, and `http://127.0.0.1:54330`.
+A browser extension that mirrors your **own** Claude.ai, Claude Design, and ChatGPT conversations into the [1AIVault](https://1aivault.com) desktop app running on the same machine. Everything stays on your computer — the extension only talks to `claude.ai`, `chatgpt.com`, and `http://127.0.0.1:54330`.
 
 > **Status:** open source, MIT licensed. Listed on the Chrome Web Store *(pending review)*. Until the store listing is live, use the "Load unpacked" instructions below.
 
@@ -20,7 +20,7 @@ If you don't want to use this extension, the official exports work fine — the 
 
 **Does:**
 
-- Reads conversations from Claude.ai and ChatGPT **for the account you are signed in as**.
+- Reads conversations from Claude.ai, Claude Design, and ChatGPT **for the account you are signed in as**.
 - Sends them to `http://127.0.0.1:54330` — a loopback receiver that only the 1AIVault desktop app on your machine listens on.
 - Caches a per-conversation `updated_at` timestamp so unchanged conversations are skipped on the next sync.
 - Optionally runs in the background every 5 minutes (opt-in toggle).
@@ -105,6 +105,15 @@ Either way, conversations are de-duplicated by `externalId` (the original UUID f
 3. For each conversation: `GET /api/organizations/<uuid>/chat_conversations/<id>?rendering_mode=raw` to fetch the full transcript.
 4. Auth = your existing Claude.ai cookies (`credentials: 'include'`).
 
+### Claude Design
+
+Claude Design lives on claude.ai but uses a separate Connect-RPC service instead of the `/api/*` REST surface:
+
+1. `POST /design/anthropic.omelette.api.v1alpha.OmeletteService/ListProjects` — paginated by a `cursor` field; each item is one design project (`projectId`, `name`, `viewedAt`).
+2. `POST …/OmeletteService/GetProject` with `{ projectId }` — returns the project, whose base64 `data` field decodes to JSON holding every chat and message.
+3. Each project's chats are flattened into a single conversation and imported under source `claude_design`; requests carry the `Connect-Protocol-Version: 1` header.
+4. Auth = your existing Claude.ai cookies. Because these endpoints share claude.ai's Cloudflare guard, every request runs inside a real claude.ai tab (same mechanism as the chat list).
+
 ### ChatGPT
 
 1. `GET https://chatgpt.com/api/auth/session` to retrieve the short-lived access token.
@@ -122,7 +131,7 @@ Both APIs reject XHRs whose `Origin` is `chrome-extension://…` (Cloudflare sam
 
 ```json
 {
-  "source": "claude_desktop" | "chatgpt",
+  "source": "claude_desktop" | "claude_design" | "chatgpt",
   "conversations": [
     {
       "externalId": "uuid",
@@ -191,8 +200,10 @@ rules.json                 declarativeNetRequest rules (header rewriting)
 background.js              Service worker — alarm + message router
 lib/
   claude.js                Claude.ai sync logic
+  claude-design.js         Claude Design sync + discovery (Omelette Connect-RPC)
   chatgpt.js               ChatGPT sync logic
   discover.js              Lightweight metadata listing for the picker UI
+  tab-fetch.js             Runs GET/POST fetches inside a real site tab (origin/Cloudflare-safe)
   net.js                   getJson() — pacing + 429/503 retry
   vault.js                 POST to local receiver
 popup/
