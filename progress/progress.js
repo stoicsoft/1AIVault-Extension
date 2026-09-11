@@ -18,7 +18,7 @@ const reasonEl = document.getElementById('reason')
 const headerActions = document.getElementById('headerActions')
 
 // ─── State ─────────────────────────────────────────────────────────────────
-// All checkbox state lives in `selection.{claude,chatgpt}` (Set<id>) and is
+// All checkbox state lives in `selection.{claude,chatgpt,design,grok}` (Set<id>) and is
 // updated as the user clicks. Display controls only change which rows are
 // visible; the final sync still sends the selected IDs.
 
@@ -27,6 +27,7 @@ const selection = {
   claude: new Set(),
   chatgpt: new Set(),
   design: new Set(),
+  grok: new Set(),
 }
 let filter = ''
 let viewMode = 'projects'
@@ -70,13 +71,13 @@ async function renderLastSyncSummary() {
     if (svc.signedIn === false) return `${name}: not signed in`
     return `${name}: +${svc.imported || 0} new`
   }
-  el.textContent = `Last sync ${ago} — ${describe(r.claude, 'Claude.ai')}, ${describe(r.chatgpt, 'ChatGPT')}, ${describe(r.design, 'Design')}`
+  el.textContent = `Last sync ${ago} — ${describe(r.claude, 'Claude.ai')}, ${describe(r.chatgpt, 'ChatGPT')}, ${describe(r.design, 'Design')}, ${describe(r.grok, 'Grok')}`
 }
 
 document.querySelectorAll('.picker-card').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const which = btn.dataset.service
-    const services = which === 'both' ? ['claude', 'chatgpt', 'design'] : [which]
+    const services = which === 'both' ? ['claude', 'chatgpt', 'design', 'grok'] : [which]
     const loadingMsg = document.getElementById('loadingMsg')
     if (loadingMsg) {
       loadingMsg.textContent = `Discovering ${services.map(labelFor).join(' + ')}…`
@@ -98,6 +99,7 @@ function buildInitialSelection() {
   selection.claude.clear()
   selection.chatgpt.clear()
   selection.design.clear()
+  selection.grok.clear()
   const needsImport = (c) => c.vaultStatus !== 'current'
   if (discovery && discovery.claude && discovery.claude.signedIn) {
     for (const org of discovery.claude.orgs) {
@@ -110,6 +112,9 @@ function buildInitialSelection() {
   }
   if (discovery && discovery.design && discovery.design.signedIn) {
     for (const c of discovery.design.projects) if (needsImport(c)) selection.design.add(c.id)
+  }
+  if (discovery && discovery.grok && discovery.grok.signedIn) {
+    for (const c of discovery.grok.conversations) if (needsImport(c)) selection.grok.add(c.id)
   }
   updateSummary()
 }
@@ -218,6 +223,7 @@ function selectByStatus(predicate) {
   selection.claude.clear()
   selection.chatgpt.clear()
   selection.design.clear()
+  selection.grok.clear()
   forEachConv((service, conv) => {
     if (predicate(conv) && isQueryable(conv)) selection[service].add(conv.id)
   })
@@ -238,6 +244,9 @@ function renderTree() {
     }
     if (discovery && discovery.design) {
       tree.appendChild(renderDesignSection(discovery.design))
+    }
+    if (discovery && discovery.grok) {
+      tree.appendChild(renderGrokSection(discovery.grok))
     }
   }
   updateControls()
@@ -326,6 +335,32 @@ function renderChatGPTSection(data) {
   return root
 }
 
+function renderGrokSection(data) {
+  const root = section('Grok')
+  if (!data.signedIn) {
+    root.appendChild(warn(`Not signed in on this browser. Open grok.com, sign in, then Re-scan.`))
+    return root
+  }
+  if (data.error) {
+    root.appendChild(warn(`Error: ${data.error}`))
+    return root
+  }
+  const list = sortedEntries(
+    (data.conversations || [])
+      .map((conv) => ({ service: 'grok', conv, projectName: '', orgName: '' }))
+      .filter(entryMatches)
+  )
+  if (list.length === 0) {
+    root.appendChild(warn(emptyMessage()))
+    return root
+  }
+  const container = document.createElement('div')
+  container.className = 'children'
+  for (const entry of list) container.appendChild(convRow('grok', entry.conv, false, entryMeta(entry)))
+  root.appendChild(container)
+  return root
+}
+
 function renderDesignSection(data) {
   const root = section('Claude Design')
   if (!data.signedIn) {
@@ -378,6 +413,11 @@ function getAllEntries() {
       entries.push({ service: 'design', conv, projectName: '', orgName: '' })
     }
   }
+  if (discovery && discovery.grok && discovery.grok.signedIn && !discovery.grok.error) {
+    for (const conv of discovery.grok.conversations) {
+      entries.push({ service: 'grok', conv, projectName: '', orgName: '' })
+    }
+  }
   return entries
 }
 
@@ -385,6 +425,7 @@ function appendDiscoveryWarnings(root) {
   if (discovery && discovery.claude) appendServiceWarning(root, 'Claude.ai', discovery.claude)
   if (discovery && discovery.chatgpt) appendServiceWarning(root, 'ChatGPT', discovery.chatgpt)
   if (discovery && discovery.design) appendServiceWarning(root, 'Claude Design', discovery.design)
+  if (discovery && discovery.grok) appendServiceWarning(root, 'Grok', discovery.grok)
 }
 
 function appendServiceWarning(root, label, data) {
@@ -645,9 +686,13 @@ function updateSummary() {
   const c = selection.claude.size
   const g = selection.chatgpt.size
   const d = selection.design.size
+  const k = selection.grok.size
   const selectedForSync = getSelectedIdsForSync()
   const syncCount =
-    selectedForSync.claude.length + selectedForSync.chatgpt.length + selectedForSync.design.length
+    selectedForSync.claude.length +
+    selectedForSync.chatgpt.length +
+    selectedForSync.design.length +
+    selectedForSync.grok.length
   let newCount = 0
   let updatedCount = 0
   let importedCount = 0
@@ -661,8 +706,8 @@ function updateSummary() {
   const entries = getAllEntries()
   const visibleCount = entries.filter(entryMatches).length
   const parts = [
-    `${c + g + d} selected`,
-    `${c} Claude · ${g} ChatGPT · ${d} Design`,
+    `${c + g + d + k} selected`,
+    `${c} Claude · ${g} ChatGPT · ${d} Design · ${k} Grok`,
     `${newCount} new · ${updatedCount} updated · ${importedCount} imported`,
   ]
   if (queryNewOnly) parts.push(`${syncCount} to query`)
@@ -692,7 +737,7 @@ function pruneSelectionForQuery() {
 }
 
 function getSelectedIdsForSync() {
-  const selected = { claude: [], chatgpt: [], design: [] }
+  const selected = { claude: [], chatgpt: [], design: [], grok: [] }
   forEachConv((service, conv) => {
     if (selection[service].has(conv.id) && isQueryable(conv)) selected[service].push(conv.id)
   })
@@ -712,6 +757,9 @@ function forEachConv(fn) {
   if (discovery && discovery.design && discovery.design.signedIn) {
     for (const c of discovery.design.projects) fn('design', c)
   }
+  if (discovery && discovery.grok && discovery.grok.signedIn) {
+    for (const c of discovery.grok.conversations) fn('grok', c)
+  }
 }
 
 function forEachVisibleConv(fn) {
@@ -725,7 +773,10 @@ function forEachVisibleConv(fn) {
 async function startSync() {
   const selectedForSync = getSelectedIdsForSync()
   if (
-    selectedForSync.claude.length + selectedForSync.chatgpt.length + selectedForSync.design.length ===
+    selectedForSync.claude.length +
+      selectedForSync.chatgpt.length +
+      selectedForSync.design.length +
+      selectedForSync.grok.length ===
     0
   )
     return
@@ -740,6 +791,7 @@ async function startSync() {
       claude: selectedForSync.claude,
       chatgpt: selectedForSync.chatgpt,
       design: selectedForSync.design,
+      grok: selectedForSync.grok,
     },
   })
 }
@@ -759,6 +811,7 @@ const cards = {
   claude: makeCardBinding('card-claude'),
   chatgpt: makeCardBinding('card-chatgpt'),
   design: makeCardBinding('card-design'),
+  grok: makeCardBinding('card-grok'),
 }
 const logList = document.getElementById('logList')
 const autoscroll = document.getElementById('autoscroll')
@@ -767,6 +820,7 @@ const totals = {
   claude: { imported: 0, skipped: 0, errors: 0 },
   chatgpt: { imported: 0, skipped: 0, errors: 0 },
   design: { imported: 0, skipped: 0, errors: 0 },
+  grok: { imported: 0, skipped: 0, errors: 0 },
 }
 
 function resetRunCards() {
@@ -789,7 +843,8 @@ function consume(event) {
     const claude = describeServiceResult(r.claude)
     const chatgpt = describeServiceResult(r.chatgpt)
     const design = describeServiceResult(r.design)
-    appendLog(event, 'done', `Session complete · Claude: ${claude} · ChatGPT: ${chatgpt} · Design: ${design}`)
+    const grok = describeServiceResult(r.grok)
+    appendLog(event, 'done', `Session complete · Claude: ${claude} · ChatGPT: ${chatgpt} · Design: ${design} · Grok: ${grok}`)
     setHeaderActions('done')
     return
   }
@@ -832,6 +887,16 @@ function consume(event) {
       card.bumpErrors()
       appendLog(event, 'error', `[${event.index}/${event.total}] ${event.title} — ${event.error}`)
     }
+    return
+  }
+  if (stage === 'vault-unreachable') {
+    card.setStatus('warn')
+    appendLog(
+      event,
+      'error',
+      `Could not reach the 1AIVault desktop app — re-sending all ${event.total} conversations. ` +
+        'Make sure the app is running and the pair token matches.'
+    )
     return
   }
   if (stage === 'post') {
@@ -885,6 +950,7 @@ function labelFor(service) {
   if (service === 'claude') return 'Claude.ai'
   if (service === 'chatgpt') return 'ChatGPT'
   if (service === 'design') return 'Claude Design'
+  if (service === 'grok') return 'Grok'
   return service
 }
 

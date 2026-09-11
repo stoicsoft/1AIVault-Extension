@@ -401,9 +401,11 @@ main {
 .entry .svc { color: var(--muted); }
 .entry .svc.claude { color: #b45309; }
 .entry .svc.chatgpt { color: #047857; }
+.entry .svc.grok { color: #374151; }
 @media (prefers-color-scheme: dark) {
   .entry .svc.claude { color: #fbbf24; }
   .entry .svc.chatgpt { color: #34d399; }
+  .entry .svc.grok { color: #d1d5db; }
 }
 .entry.cached .msg { color: var(--muted); }
 .entry.error .msg { color: var(--danger); }

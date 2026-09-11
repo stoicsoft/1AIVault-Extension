@@ -3,7 +3,8 @@
 
 import { syncClaude } from './lib/claude.js'
 import { syncChatGPT } from './lib/chatgpt.js'
-import { discoverClaude, discoverChatGPT } from './lib/discover.js'
+import { syncGrok } from './lib/grok.js'
+import { discoverClaude, discoverChatGPT, discoverGrok } from './lib/discover.js'
 import { discoverClaudeDesign, syncClaudeDesign } from './lib/claude-design.js'
 import { pingVault } from './lib/vault.js'
 
@@ -56,7 +57,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'sync-now') {
     runSync({
       reason: msg.reason || 'manual',
-      filter: msg.filter || null, // { claude: string[] | null, chatgpt: string[] | null }
+      filter: msg.filter || null, // { claude, chatgpt, design, grok: string[] | null }
       allowOpenTab: true, // user-initiated — OK to open a background claude.ai tab if needed
     }).then(sendResponse)
     return true
@@ -86,17 +87,18 @@ function emit(event) {
   chrome.runtime.sendMessage({ type: 'sync-event', event: stamped }).catch(() => {})
 }
 
-/** services: array of 'claude'|'chatgpt'|'design' — selective discovery. Defaults to all. */
+/** services: array of 'claude'|'chatgpt'|'design'|'grok' — selective discovery. Defaults to all. */
 async function runDiscovery(services, { allowOpenTab = true } = {}) {
   const want = Array.isArray(services) && services.length > 0
     ? new Set(services)
-    : new Set(['claude', 'chatgpt', 'design'])
+    : new Set(['claude', 'chatgpt', 'design', 'grok'])
   emit({ stage: 'discover-start', services: [...want] })
-  const result = { claude: null, chatgpt: null, design: null }
+  const result = { claude: null, chatgpt: null, design: null, grok: null }
   const jobs = []
   if (want.has('claude')) jobs.push(discoverClaude({ allowOpenTab }).then((r) => (result.claude = r)))
   if (want.has('chatgpt')) jobs.push(discoverChatGPT({ allowOpenTab }).then((r) => (result.chatgpt = r)))
   if (want.has('design')) jobs.push(discoverClaudeDesign({ allowOpenTab }).then((r) => (result.design = r)))
+  if (want.has('grok')) jobs.push(discoverGrok({ allowOpenTab }).then((r) => (result.grok = r)))
   await Promise.all(jobs)
   emit({ stage: 'discover-end' })
   return result
@@ -112,12 +114,14 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
     const claudeIds = filter && Array.isArray(filter.claude) ? new Set(filter.claude) : null
     const chatgptIds = filter && Array.isArray(filter.chatgpt) ? new Set(filter.chatgpt) : null
     const designIds = filter && Array.isArray(filter.design) ? new Set(filter.design) : null
+    const grokIds = filter && Array.isArray(filter.grok) ? new Set(filter.grok) : null
 
-    const result = { reason, claude: null, chatgpt: null, design: null }
+    const result = { reason, claude: null, chatgpt: null, design: null, grok: null }
     // If filter explicitly says "no conversations" for a service, skip it.
     const runClaude = !filter || claudeIds === null || claudeIds.size > 0
     const runChatgpt = !filter || chatgptIds === null || chatgptIds.size > 0
     const runDesign = !filter || designIds === null || designIds.size > 0
+    const runGrok = !filter || grokIds === null || grokIds.size > 0
 
     if (runClaude) {
       try {
@@ -158,6 +162,19 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
       result.design = { skipped: true }
     }
 
+    if (runGrok) {
+      try {
+        result.grok = await syncGrok(emit, { selectedIds: grokIds, allowOpenTab })
+      } catch (err) {
+        const message = err && err.message ? err.message : String(err)
+        emit({ stage: 'fatal', service: 'grok', error: message })
+        result.grok = { error: message }
+      }
+    } else {
+      emit({ stage: 'skipped', service: 'grok' })
+      result.grok = { skipped: true }
+    }
+
     const elapsed = Date.now() - start
     emit({ stage: 'session-end', elapsedMs: elapsed, result })
     // Don't pollute the "last sync" line with no-op passive runs — the auto-
@@ -166,11 +183,13 @@ async function runSync({ reason, filter, allowOpenTab = true }) {
     const claudeIdle = !result.claude || result.claude.passiveSkipped || result.claude.skipped
     const chatgptIdle = !result.chatgpt || result.chatgpt.passiveSkipped || result.chatgpt.skipped
     const designIdle = !result.design || result.design.passiveSkipped || result.design.skipped
+    const grokIdle = !result.grok || result.grok.passiveSkipped || result.grok.skipped
     const anyPassive =
       (result.claude && result.claude.passiveSkipped) ||
       (result.chatgpt && result.chatgpt.passiveSkipped) ||
-      (result.design && result.design.passiveSkipped)
-    const passive = anyPassive && claudeIdle && chatgptIdle && designIdle
+      (result.design && result.design.passiveSkipped) ||
+      (result.grok && result.grok.passiveSkipped)
+    const passive = anyPassive && claudeIdle && chatgptIdle && designIdle && grokIdle
     if (!passive) {
       await chrome.storage.local.set({
         lastSync: { at: Date.now(), elapsedMs: elapsed, result },

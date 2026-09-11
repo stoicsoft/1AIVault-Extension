@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "gates": {
+    "spec": false,
+    "plan": true,
+    "done": true
+  },
+  "gateTimeoutMs": 1800000,
+  "onTimeout": "block",
+  "definitionOfDone": [],
+  "crossProjectWrites": false,
+  "gitTracked": true,
+  "migratedFromV1": true,
+  "defaultSwimlane": "terminal"
+}

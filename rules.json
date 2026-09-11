@@ -37,5 +37,24 @@
       "resourceTypes": ["xmlhttprequest"],
       "excludedInitiatorDomains": ["chatgpt.com", "chat.openai.com"]
     }
+  },
+  {
+    "id": 3,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Origin", "operation": "set", "value": "https://grok.com" },
+        { "header": "Referer", "operation": "set", "value": "https://grok.com/" },
+        { "header": "Sec-Fetch-Site", "operation": "set", "value": "same-origin" },
+        { "header": "Sec-Fetch-Mode", "operation": "set", "value": "cors" },
+        { "header": "Sec-Fetch-Dest", "operation": "set", "value": "empty" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||grok.com/",
+      "resourceTypes": ["xmlhttprequest"],
+      "excludedInitiatorDomains": ["grok.com"]
+    }
   }
 ]

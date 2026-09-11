@@ -36,9 +36,13 @@
               <div class="picker-title">Claude Design</div>
               <div class="picker-sub">Design projects</div>
             </button>
+            <button class="picker-card" data-service="grok">
+              <div class="picker-title">Grok</div>
+              <div class="picker-sub">grok.com conversations</div>
+            </button>
             <button class="picker-card primary" data-service="both">
               <div class="picker-title">Everything</div>
-              <div class="picker-sub">Claude.ai, ChatGPT & Design</div>
+              <div class="picker-sub">Claude.ai, ChatGPT, Design & Grok</div>
             </button>
           </div>
           <div id="lastSyncInfo" class="muted" style="margin-top:18px"></div>
@@ -127,6 +131,20 @@
             <header>
               <span class="dot" data-status="idle"></span>
               <h2>Claude Design</h2>
+              <span class="state" data-state>idle</span>
+            </header>
+            <div class="progress"><div class="bar" data-bar></div></div>
+            <div class="metric" data-metric>—</div>
+            <div class="counts">
+              <span><b data-imported>0</b> imported</span>
+              <span><b data-skipped>0</b> skipped</span>
+              <span><b data-errors>0</b> errors</span>
+            </div>
+          </article>
+          <article class="card" id="card-grok">
+            <header>
+              <span class="dot" data-status="idle"></span>
+              <h2>Grok</h2>
               <span class="state" data-state>idle</span>
             </header>
             <div class="progress"><div class="bar" data-bar></div></div>

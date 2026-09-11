@@ -1,6 +1,6 @@
 # 1AIVault Sync
 
-A browser extension that mirrors your **own** Claude.ai, Claude Design, and ChatGPT conversations into the [1AIVault](https://1aivault.com) desktop app running on the same machine. Everything stays on your computer — the extension only talks to `claude.ai`, `chatgpt.com`, and `http://127.0.0.1:54330`.
+A browser extension that mirrors your **own** Claude.ai, Claude Design, ChatGPT, and Grok conversations into the [1AIVault](https://1aivault.com) desktop app running on the same machine. Everything stays on your computer — the extension only talks to `claude.ai`, `chatgpt.com`, `grok.com`, and `http://127.0.0.1:54330`.
 
 > **Status:** open source, MIT licensed. Listed on the Chrome Web Store *(pending review)*. Until the store listing is live, use the "Load unpacked" instructions below.
 
@@ -10,7 +10,7 @@ A browser extension that mirrors your **own** Claude.ai, Claude Design, and Chat
 
 The 1AIVault desktop app is a local memory vault for your AI tools — your decisions, preferences, skills, and conversation history, indexed in a SQLite database and exposed to Claude Code / Claude Desktop / Cursor / Cline via MCP.
 
-To populate the vault from the cloud chats you already have, the desktop app needs a way to read them. Anthropic and OpenAI both provide official **export** flows (Settings → Privacy → Export), but those are slow, manual, and email-delivered. This extension is a faster path: while you are already signed in to claude.ai / chatgpt.com in your browser, it uses your session cookies to fetch your conversations and POST them to the desktop app over loopback.
+To populate the vault from the cloud chats you already have, the desktop app needs a way to read them. Anthropic and OpenAI both provide official **export** flows (Settings → Privacy → Export), but those are slow, manual, and email-delivered. This extension is a faster path: while you are already signed in to claude.ai / chatgpt.com / grok.com in your browser, it uses your session cookies to fetch your conversations and POST them to the desktop app over loopback.
 
 If you don't want to use this extension, the official exports work fine — the desktop app can import them too.
 
@@ -20,17 +20,17 @@ If you don't want to use this extension, the official exports work fine — the 
 
 **Does:**
 
-- Reads conversations from Claude.ai, Claude Design, and ChatGPT **for the account you are signed in as**.
+- Reads conversations from Claude.ai, Claude Design, ChatGPT, and Grok **for the account you are signed in as**.
 - Sends them to `http://127.0.0.1:54330` — a loopback receiver that only the 1AIVault desktop app on your machine listens on.
 - Caches a per-conversation `updated_at` timestamp so unchanged conversations are skipped on the next sync.
 - Optionally runs in the background every 5 minutes (opt-in toggle).
 
 **Doesn't:**
 
-- Talk to any server other than `claude.ai`, `chatgpt.com`, and `127.0.0.1`.
+- Talk to any server other than `claude.ai`, `chatgpt.com`, `grok.com`, and `127.0.0.1`.
 - Read other people's data, organisations you're not a member of, or anything you can't already see in your own browser tab.
 - Train any model, send telemetry, or analyse your conversations.
-- Modify pages on claude.ai / chatgpt.com — there are no content scripts.
+- Modify pages on claude.ai / chatgpt.com / grok.com — there are no content scripts.
 
 ---
 
@@ -77,7 +77,7 @@ There are two ways to sync:
 - **Sync now (fullscreen)** — opens a tab with a list of every conversation grouped by org / project. Pick what to import, click **Start import →**.
 - **Auto-sync** — toggle in the popup. The service worker runs every 5 minutes and imports anything new / changed since the last tick. No UI, no notifications.
 
-Either way, conversations are de-duplicated by `externalId` (the original UUID from claude.ai / chatgpt.com), so re-syncing is safe.
+Either way, conversations are de-duplicated by `externalId` (the original UUID from claude.ai / chatgpt.com / grok.com), so re-syncing is safe.
 
 ---
 
@@ -87,6 +87,7 @@ Either way, conversations are de-duplicated by `externalId` (the original UUID f
 ┌──────────────────┐    cookies     ┌──────────────┐
 │ claude.ai API    │ ◀──────────── │ Service      │
 │ chatgpt.com API  │                │ worker       │
+│ grok.com API     │                │              │
 └──────────────────┘ ──── JSON ───▶ │ (background) │
                                     └──────┬───────┘
                                            │  POST + Bearer pair-token
@@ -110,9 +111,10 @@ Either way, conversations are de-duplicated by `externalId` (the original UUID f
 Claude Design lives on claude.ai but uses a separate Connect-RPC service instead of the `/api/*` REST surface:
 
 1. `POST /design/anthropic.omelette.api.v1alpha.OmeletteService/ListProjects` — paginated by a `cursor` field; each item is one design project (`projectId`, `name`, `viewedAt`).
-2. `POST …/OmeletteService/GetProject` with `{ projectId }` — returns the project, whose base64 `data` field decodes to JSON holding every chat and message.
-3. Each project's chats are flattened into a single conversation and imported under source `claude_design`; requests carry the `Connect-Protocol-Version: 1` header.
-4. Auth = your existing Claude.ai cookies. Because these endpoints share claude.ai's Cloudflare guard, every request runs inside a real claude.ai tab (same mechanism as the chat list).
+2. `POST …/OmeletteService/GetProject` with `{ projectId }` — returns the project, whose base64 `data` field decodes to JSON holding every chat and message plus the `assets` index (deliverable name → versioned file paths).
+3. `POST …/OmeletteService/ListFiles` with `{ projectId, path? }` and `POST …/OmeletteService/GetFile` with `{ projectId, path }` — the project's real server-side file store. The final artifact files are read from here (text files embedded in the transcript, binaries listed by name); replaying the chat's `write_file`/`str_replace_edit` tool calls is only a fallback when the file store is unreachable.
+4. Each project's chats are flattened into a single conversation, the artifact files are appended as a trailing "Design files" message, and everything is imported under source `claude_design`; requests carry the `Connect-Protocol-Version: 1` header.
+5. Auth = your existing Claude.ai cookies. Because these endpoints share claude.ai's Cloudflare guard, every request runs inside a real claude.ai tab (same mechanism as the chat list).
 
 ### ChatGPT
 
@@ -121,9 +123,16 @@ Claude Design lives on claude.ai but uses a separate Connect-RPC service instead
 3. For each conversation: `GET /backend-api/conversation/<id>` to fetch the full `mapping` tree.
 4. Auth = `Authorization: Bearer <accessToken>`.
 
+### Grok
+
+1. `GET https://grok.com/rest/app-chat/conversations?pageSize=100` (paginated by `pageToken`) to list chats for the signed-in account.
+2. For each conversation: `GET /rest/app-chat/conversations_v2/<id>` for title / timestamps.
+3. `GET /rest/app-chat/conversations/<id>/response-node` for the ordered `responseId` list, then `POST /rest/app-chat/conversations/<id>/load-responses` with `{ responseIds }` for the message bodies.
+4. Auth = your existing grok.com cookies (`credentials: 'include'`). Every request runs inside a real grok.com tab (same Cloudflare workaround as ChatGPT).
+
 ### Header rewriting
 
-Both APIs reject XHRs whose `Origin` is `chrome-extension://…` (Cloudflare same-origin check). The extension uses [`declarativeNetRequest`](rules.json) to rewrite `Origin`, `Referer`, and the `Sec-Fetch-*` headers on outbound requests to `claude.ai/api/*` and `chatgpt.com/*` so the API sees a same-origin request. No request data is modified.
+The APIs reject XHRs whose `Origin` is `chrome-extension://…` (Cloudflare same-origin check). The extension uses [`declarativeNetRequest`](rules.json) to rewrite `Origin`, `Referer`, and the `Sec-Fetch-*` headers on outbound requests to `claude.ai/api/*`, `chatgpt.com/*`, and `grok.com/*` so the API sees a same-origin request. No request data is modified.
 
 ### Local receiver
 
@@ -131,7 +140,7 @@ Both APIs reject XHRs whose `Origin` is `chrome-extension://…` (Cloudflare sam
 
 ```json
 {
-  "source": "claude_desktop" | "claude_design" | "chatgpt",
+  "source": "claude_desktop" | "claude_design" | "chatgpt" | "grok_web",
   "conversations": [
     {
       "externalId": "uuid",
@@ -157,6 +166,7 @@ The desktop app dedups by `externalId`, inserts new entries into the vault, and 
 - The extension communicates **only** with the hosts listed in `manifest.json`:
   - `claude.ai` / `*.claude.ai`
   - `chatgpt.com` / `chat.openai.com`
+  - `grok.com` / `*.grok.com`
   - `127.0.0.1:54330` (loopback only)
 - The desktop app's receiver binds to `127.0.0.1` — it is not reachable from other devices on your network.
 - The pair token is the sole authentication for the receiver. Regenerating it from the desktop app invalidates the previous one.
@@ -170,9 +180,10 @@ The desktop app dedups by `externalId`, inserts new entries into the vault, and 
 |---|---|
 | `storage` | Persist pair token, last-sync log, per-conversation `updated_at` cache. |
 | `alarms` | 5-minute background sync tick (only when Auto-sync is on). |
-| `declarativeNetRequestWithHostAccess` | Rewrite `Origin` / `Referer` on requests to claude.ai and chatgpt.com so their APIs treat the extension's XHRs as same-origin. |
+| `declarativeNetRequestWithHostAccess` | Rewrite `Origin` / `Referer` on requests to claude.ai, chatgpt.com, and grok.com so their APIs treat the extension's XHRs as same-origin. |
 | `host_permissions: claude.ai`, `*.claude.ai` | Fetch your conversations from Claude.ai. |
 | `host_permissions: chatgpt.com`, `chat.openai.com` | Fetch your conversations from ChatGPT. |
+| `host_permissions: grok.com`, `*.grok.com` | Fetch your conversations from Grok. |
 | `host_permissions: 127.0.0.1:54330` | POST conversations to the local desktop receiver. |
 
 No `<all_urls>`, no content scripts, no `tabs`, no `webRequest`.
@@ -185,10 +196,11 @@ You should know:
 
 - **Anthropic** Consumer Terms §3.7 prohibits accessing claude.ai "through automated or non-human means … except via an Anthropic API key."
 - **OpenAI** Consumer Terms prohibit "automatically or programmatically extract[ing] data or Output" from ChatGPT.
+- **xAI** terms similarly restrict automated access to grok.com outside the official API.
 
-This extension does both — on **your own** account, against **your own** data. Neither vendor has a published carve-out for self-data export; GDPR/CCPA rights are against the vendor, not via third-party tooling. Use at your own discretion. If you want a strictly ToS-clean path, use each vendor's official export (`Settings → Data Controls / Privacy → Export`) and import the result in the desktop app.
+This extension does that — on **your own** account, against **your own** data. None of the vendors have a published carve-out for self-data export; GDPR/CCPA rights are against the vendor, not via third-party tooling. Use at your own discretion. If you want a strictly ToS-clean path, use each vendor's official export (`Settings → Data Controls / Privacy → Export`) and import the result in the desktop app.
 
-The extension may stop working at any time if either vendor changes their API or tightens bot detection.
+The extension may stop working at any time if a vendor changes their API or tightens bot detection.
 
 ---
 
@@ -202,6 +214,7 @@ lib/
   claude.js                Claude.ai sync logic
   claude-design.js         Claude Design sync + discovery (Omelette Connect-RPC)
   chatgpt.js               ChatGPT sync logic
+  grok.js                  Grok (grok.com) sync logic
   discover.js              Lightweight metadata listing for the picker UI
   tab-fetch.js             Runs GET/POST fetches inside a real site tab (origin/Cloudflare-safe)
   net.js                   getJson() — pacing + 429/503 retry
@@ -234,7 +247,7 @@ There is no build step — the extension is plain ES modules, loaded directly by
 | `claude conversations: …: 403` | Cloudflare rejected the request. Reload the extension after enabling the `declarativeNetRequest` rules (manifest change requires a full reload). |
 | `not paired — open the popup and paste your token` | Pair token missing. Copy it from the desktop app's Settings → General → Browser extension. |
 | `Not reachable` in the popup | Desktop app is not running, or its loopback receiver is bound elsewhere. Start the app and click **Test**. |
-| Conversations not updating | Check the cache: `chrome.storage.local.get(null)` in the service worker console. Each entry under `claude:<uuid>` / `chatgpt:<id>` is the cached `updated_at`. Delete those keys to force a re-sync. |
+| Conversations not updating | Check the cache: `chrome.storage.local.get(null)` in the service worker console. Each entry under `claude:<uuid>` / `chatgpt:<id>` / `grok:<id>` is the cached `updated_at`. Delete those keys to force a re-sync. |
 
 ---
 

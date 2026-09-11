@@ -77,6 +77,7 @@ async function refreshLastSync() {
     serviceRows.appendChild(svcRow('Claude.ai', ls.result.claude))
     serviceRows.appendChild(svcRow('ChatGPT', ls.result.chatgpt))
     serviceRows.appendChild(svcRow('Claude Design', ls.result.design))
+    serviceRows.appendChild(svcRow('Grok', ls.result.grok))
   }
 }
 
